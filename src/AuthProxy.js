@@ -11,13 +11,12 @@ const authStrategies = {
     Authorization: `OAuth ${accessToken}`,
   }),
 };
-
 class AuthProxy {
-
-  constructor(httpClient, strategyName, credentials) {
+  constructor(httpClient, strategyName, credentials, refreshFn = null) {
     this._client = httpClient;
     this._strategyName = strategyName;
     this._credentials = credentials;
+    this._refreshFn = refreshFn;
   }
 
   async request(req) {
@@ -27,14 +26,23 @@ class AuthProxy {
     }
 
     const authHeaders = strategy(this._credentials);
-
-    return this._client.request({
+    const response = await this._client.request({
       ...req,
-      headers: {
-        ...req.headers,
-        ...authHeaders,
-      },
+      headers: { ...req.headers, ...authHeaders },
     });
+
+    if (response.status === 401 && this._refreshFn) {
+      const newCredentials = await this._refreshFn(this._credentials);
+      this._credentials = newCredentials;
+
+      const newAuthHeaders = strategy(newCredentials);
+      return this._client.request({
+        ...req,
+        headers: { ...req.headers, ...newAuthHeaders },
+      });
+    }
+
+    return response;
   }
 }
 
